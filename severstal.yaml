@@ -1,0 +1,6 @@
+path: /home/anirudhaseetiraju/coding-workstation/severstal_yolo  # Update to your root dir
+train: images/train
+val: images/val
+
+nc: 4  # 4 defect classes
+names: ['defect_1', 'defect_2', 'defect_3', 'defect_4']  # As per Severstal (1: scratch, 2: other, 3: rolled-in scale, 4: patches; rename if needed)

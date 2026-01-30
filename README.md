@@ -1,0 +1,1 @@
+## This project contains the files relevant to Severstal steel surface defect detection modeling.
