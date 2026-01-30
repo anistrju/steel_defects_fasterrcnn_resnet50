@@ -1,4 +1,4 @@
-.venv/
+venv/
 train_images/
 test_images/
 
