@@ -1,9 +1,10 @@
 
-pandas == 3.0.0
+pandas == 2.2.3
+numpy == 1.26.4
 opencv-python == 4.13.0.90
 scikit-learn == 1.8.0
 torch == 2.10.0
-torchvision == 0.25.0
+torchvision == 0.19.0
 pycocotools == 2.0.11
-streamlit==1.53.1
+streamlit==1.39.0
 pillow==10.4.0
