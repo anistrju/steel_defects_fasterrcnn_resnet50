@@ -63,43 +63,44 @@ def load_model(weights_path: str):
 # Visualization: create original + highlighted version
 # ─────────────────────────────────────────────────────────────
 def create_visualizations(pil_img: Image.Image, detections: List[Dict], thresh: float = 0.3) -> Tuple[Image.Image, Image.Image]:
-    # Original
     original = pil_img.copy()
 
-    # Highlighted version: grayscale + darkened + colored boxes
-    gray = ImageOps.grayscale(pil_img)
+    # Always start with RGBA — avoids almost all mode-related surprises
+    img_rgba = pil_img.convert("RGBA")
+
+    # Grayscale + darken (still RGBA)
+    gray = ImageOps.grayscale(img_rgba).convert("RGBA")
     enhancer = ImageEnhance.Brightness(gray)
-    darkened = enhancer.enhance(0.45)  # 0.3–0.6 range usually looks good
+    darkened = enhancer.enhance(0.45)
 
     draw = ImageDraw.Draw(darkened, "RGBA")
 
     kept_dets = [d for d in detections if d["score"] >= thresh]
 
     for det in kept_dets:
-        x1, y1, x2, y2 = det["box"]
+        x1, y1, x2, y2 = [int(round(v)) for v in det["box"]]  # ensure integers
         label = det["class"]
         score = det["score"]
         color = COLOR_MAP.get(int(label.split("_")[1]), (220, 220, 60, 200))
 
-        # Semi-transparent fill + solid outline
+        # Draw with transparency
         draw.rectangle(
             [(x1, y1), (x2, y2)],
             outline=color[:3] + (255,),
-            fill=color,
+            fill=color,           # 4-tuple with alpha
             width=4
         )
 
-        # Text label
+        # Label background + text
         text = f"{label} {score:.2f}"
-        bbox = draw.textbbox((0, 0), text, font_size=14)
-        text_w = bbox[2] - bbox[0]
+        # Simple text with background (no font loading needed)
         draw.rectangle(
-            (x1, y1 - 22, x1 + text_w + 8, y1),
+            (x1, y1 - 24, x1 + len(text)*10 + 10, y1 - 2),  # rough size
             fill=(0, 0, 0, 180)
         )
-        draw.text((x1 + 4, y1 - 20), text, fill=(255, 255, 255), font_size=14)
+        draw.text((x1 + 5, y1 - 22), text, fill=(255, 255, 255, 255))
 
-    highlighted = darkened.convert("RGB")
+    highlighted = darkened.convert("RGB")  # final output RGB for display
     return original, highlighted
 
 # ─────────────────────────────────────────────────────────────
