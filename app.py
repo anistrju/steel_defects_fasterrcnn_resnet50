@@ -10,13 +10,18 @@ import pandas as pd
 from typing import List, Dict, Tuple
 
 # ─────────────────────────────────────────────────────────────
-# Configuration (from your script)
+# Configuration
 # ─────────────────────────────────────────────────────────────
 NUM_CLASSES = 5
-SCORE_THRESHOLD = 0.3
-WEIGHTS_PATH = "/app/fasterrcnn_severstal.pth"  # Adjust if mounted elsewhere
+SCORE_THRESHOLD = 0.3          # ← raised default (0.01 was too low)
+WEIGHTS_PATH = "/app/fasterrcnn_severstal.pth"
 
-CLASS_MAP = {1: "Defect_1", 2: "Defect_2", 3: "Defect_3", 4: "Defect_4"}
+CLASS_MAP = {
+    1: "Defect_1",
+    2: "Defect_2",
+    3: "Defect_3",
+    4: "Defect_4"
+}
 
 COLOR_MAP = {
     1: (255, 80, 80, 180),   # reddish
@@ -24,8 +29,9 @@ COLOR_MAP = {
     3: (80, 80, 255, 180),   # blueish
     4: (255, 220, 60, 180),  # yellow
 }
+
 # ─────────────────────────────────────────────────────────────
-# Transforms & Model (from your script)
+# Transforms & Model
 # ─────────────────────────────────────────────────────────────
 def get_inference_transform():
     return T.Compose([
@@ -41,7 +47,7 @@ def get_model():
     )
     return FasterRCNN(backbone, num_classes=NUM_CLASSES)
 
-@st.cache_resource  # Cache model loading for performance
+@st.cache_resource
 def load_model(weights_path: str):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = get_model()
@@ -95,12 +101,13 @@ def create_visualizations(pil_img: Image.Image, detections: List[Dict], thresh: 
 
     highlighted = darkened.convert("RGB")
     return original, highlighted
+
 # ─────────────────────────────────────────────────────────────
-# Inference Function (adapted for single image)
+# Inference
 # ─────────────────────────────────────────────────────────────
 def run_inference(img: Image.Image, model, device, transform, score_threshold=SCORE_THRESHOLD) -> List[Dict]:
     img_tensor, _ = transform(img, {})
-    img_tensor = img_tensor.to(device).unsqueeze(0)  # Add batch dim
+    img_tensor = img_tensor.to(device).unsqueeze(0)
 
     with torch.no_grad():
         output = model(img_tensor)[0]
@@ -119,16 +126,15 @@ def run_inference(img: Image.Image, model, device, transform, score_threshold=SC
             "score": round(sc, 3),
             "box": [round(v, 1) for v in box]
         })
-    
+
     return detections
 
 # ─────────────────────────────────────────────────────────────
 # Streamlit App
 # ─────────────────────────────────────────────────────────────
-st.title("Steel Defect Detection App")
-st.write("Upload multiple images from your folder (JPG/PNG/JPEG). The app will run defect detection on each and display results in a scrollable table.")
+st.title("Steel Defect Detection")
+st.markdown("Upload images → detects defects → shows **original** and **highlighted** versions + results table")
 
-# Load model once
 model, device = load_model(WEIGHTS_PATH)
 transform = get_inference_transform()
 
@@ -141,8 +147,11 @@ score_thresh = st.slider(
     help="Lower = more detections (may include false positives)"
 )
 
-# File uploader for multiple images (simulates folder by selecting all files)
-uploaded_files = st.file_uploader("Choose images from folder...", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    "Choose images (multiple allowed)",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True
+)
 
 if uploaded_files:
     results = []
