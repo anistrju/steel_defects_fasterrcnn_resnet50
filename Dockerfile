@@ -2,7 +2,7 @@
 # syntax=docker/dockerfile:1
 FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
 
-LABEL maintainer="yourname@example.com"
+LABEL maintainer="anianirudha2007@gmail.com"
 LABEL description="Streamlit Steel Defect Detection App"
 
 ENV PYTHONUNBUFFERED=1 \
@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir -U pip && \
 
 # Copy app and model
 COPY app.py .
-COPY fasterrcnn_severstal.pth .  
+  
 
 EXPOSE ${PORT}
 

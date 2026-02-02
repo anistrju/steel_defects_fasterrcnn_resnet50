@@ -14,7 +14,7 @@ from typing import List, Dict
 # ─────────────────────────────────────────────────────────────
 NUM_CLASSES = 5
 SCORE_THRESHOLD = 0.01
-WEIGHTS_PATH = "fasterrcnn_severstal.pth"  # Adjust if mounted elsewhere
+WEIGHTS_PATH = "/app/fasterrcnn_severstal.pth"  # Adjust if mounted elsewhere
 
 CLASS_MAP = {1: "Defect_1", 2: "Defect_2", 3: "Defect_3", 4: "Defect_4"}
 
