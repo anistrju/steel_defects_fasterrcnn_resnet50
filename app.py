@@ -1,12 +1,14 @@
 import streamlit as st
 import torch
 import torch.nn as nn
+import torchvision
 import torchvision.transforms.v2 as T
 from PIL import Image, ImageDraw, ImageOps, ImageEnhance
 import io
 import numpy as np
 import pandas as pd
 from typing import List, Tuple
+
 
 # ========================== MODEL DEFINITION ==========================
 # Paste this from your notebook (or use this minimal working version)
