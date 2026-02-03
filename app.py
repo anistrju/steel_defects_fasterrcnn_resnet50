@@ -211,8 +211,11 @@ if uploaded_files:
         orig_small = orig.resize((800, 128))   # keep aspect ~1600:256
         high_small = high.resize((800, 128))
 
-        buf_o = io.BytesIO(); orig_small.save(buf_o, "PNG")
-        buf_h = io.BytesIO(); high_small.save(buf_h, "PNG")
+        buf_o = io.BytesIO()
+        orig_small.save(buf_o, "PNG")
+        
+        buf_h = io.BytesIO()
+        high_small.save(buf_h, "PNG")
 
         results.append({
             "Filename": file.name,
@@ -223,19 +226,48 @@ if uploaded_files:
             "Mask Tensor Shape": str(mask_tensor.shape)
         })
 
-        progress.progress((i+1) / len(uploaded_files))
+        progress.progress((i + 1) / len(uploaded_files))
 
     # Display table
     df = pd.DataFrame(results)
 
     def img_formatter(b):
         import base64
-        return f'<img src="data:image/png;base64,{base64.b64encode(b).decode()}" width="800"/>'
+        b64 = base64.b64encode(b).decode()
+        # Click to expand effect + cursor pointer + smooth transition
+        return f'''
+            <img 
+                src="data:image/png;base64,{b64}" 
+                width="800" 
+                style="cursor:pointer; transition: all 0.3s ease; max-width:800px;" 
+                onclick="this.style.maxWidth='none'; this.style.zIndex=9999; this.style.position='relative';"
+                ondblclick="this.style.maxWidth='800px'; this.style.zIndex=1;"
+            />
+        '''
 
     st.subheader(f"Results ({len(results)} images)")
+
+    # Optional: small CSS to make sure images don't overflow badly
+    st.markdown("""
+        <style>
+            .stTable img {
+                border-radius: 6px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            }
+            .stTable td {
+                vertical-align: middle !important;
+                padding: 8px !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.markdown(
         df.style
-        .format({"Original": img_formatter, "Highlighted": img_formatter})
+        .format({
+            "Original": img_formatter,
+            "Highlighted": img_formatter
+        })
+        .set_properties(**{'text-align': 'center'}, subset=["Original", "Highlighted"])
         .to_html(escape=False),
         unsafe_allow_html=True
     )
