@@ -208,8 +208,8 @@ if uploaded_files:
         orig, high = create_visualizations(img, mask_tensor, thresh)
 
         # Thumbnails
-        orig_small = orig.resize((800, 128))   # keep aspect ~1600:256
-        high_small = high.resize((800, 128))
+        orig_small = orig.resize((400, 64))   # keep aspect ~1600:256
+        high_small = high.resize((400, 64))
 
         buf_o = io.BytesIO()
         orig_small.save(buf_o, "PNG")
@@ -238,10 +238,10 @@ if uploaded_files:
         return f'''
             <img 
                 src="data:image/png;base64,{b64}" 
-                width="800" 
-                style="cursor:pointer; transition: all 0.3s ease; max-width:800px;" 
+                width="400" 
+                style="cursor:pointer; transition: all 0.3s ease; max-width:400px;" 
                 onclick="this.style.maxWidth='none'; this.style.zIndex=9999; this.style.position='relative';"
-                ondblclick="this.style.maxWidth='800px'; this.style.zIndex=1;"
+                ondblclick="this.style.maxWidth='400px'; this.style.zIndex=1;"
             />
         '''
 
