@@ -231,46 +231,58 @@ if uploaded_files:
     # Display table
     df = pd.DataFrame(results)
 
-    def img_formatter(b):
+    # Small thumbnails (fit to screen)
+    def small_img_formatter(b):
         import base64
         b64 = base64.b64encode(b).decode()
-        # Click to expand effect + cursor pointer + smooth transition
-        return f'''
-            <img 
-                src="data:image/png;base64,{b64}" 
-                width="400" 
-                style="cursor:pointer; transition: all 0.3s ease; max-width:400px;" 
-                onclick="this.style.maxWidth='none'; this.style.zIndex=9999; this.style.position='relative';"
-                ondblclick="this.style.maxWidth='400px'; this.style.zIndex=1;"
-            />
-        '''
+        return f'<img src="data:image/png;base64,{b64}" width="280" style="border-radius:4px;"/>'
 
     st.subheader(f"Results ({len(results)} images)")
 
-    # Optional: small CSS to make sure images don't overflow badly
+    # Force better table layout + prevent overflow
     st.markdown("""
         <style>
-            .stTable img {
-                border-radius: 6px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            div[data-testid="stTable"] {
+                overflow-x: auto;
+                max-width: 100%;
             }
-            .stTable td {
-                vertical-align: middle !important;
-                padding: 8px !important;
+            .stTable td, .stTable th {
+                white-space: nowrap;
+                padding: 6px 8px !important;
+                text-align: center;
+            }
+            .stTable img {
+                max-width: 280px;
+                cursor: pointer;
+                border-radius: 4px;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.1);
             }
         </style>
     """, unsafe_allow_html=True)
 
+    # Display table with small images
     st.markdown(
         df.style
         .format({
-            "Original": img_formatter,
-            "Highlighted": img_formatter
+            "Original": small_img_formatter,
+            "Highlighted": small_img_formatter
         })
-        .set_properties(**{'text-align': 'center'}, subset=["Original", "Highlighted"])
+        .set_properties(**{
+            'text-align': 'center',
+            'min-width': '300px'   # helps control column width
+        }, subset=["Original", "Highlighted"])
         .to_html(escape=False),
         unsafe_allow_html=True
     )
 
-    with st.expander("Raw mask info"):
-        st.json([{r["Filename"]: {"classes": r["Defects Detected"], "shape": r["Mask Tensor Shape"]}} for r in results])
+    # Click interaction: show full images in expander / modal simulation
+    st.markdown("**Click an image filename below to see full-size version**")
+
+    for idx, row in df.iterrows():
+        with st.expander(f"📸 {row['Filename']} – Full Size", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.image(row["Original"], caption="Original", use_column_width=True)
+            with col2:
+                st.image(row["Highlighted"], caption="Highlighted", use_column_width=True)
+            st.markdown(f"**Defects:** {row['Defects Detected']}")
