@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple
 # Configuration
 # ─────────────────────────────────────────────────────────────
 NUM_CLASSES = 5
-SCORE_THRESHOLD = 0.3          # ← raised default (0.01 was too low)
+SCORE_THRESHOLD = 0.01          # ← raised default (0.01 was too low)
 WEIGHTS_PATH = "/app/fasterrcnn_severstal.pth"
 
 CLASS_MAP = {
