@@ -194,8 +194,8 @@ if uploaded_files:
         orig, high = create_visualizations(img, mask_tensor, thresh)
 
         # Thumbnails
-        orig_small = orig.resize((300, 48))   # keep aspect ~1600:256
-        high_small = high.resize((300, 48))
+        orig_small = orig.resize((800, 128))   # keep aspect ~1600:256
+        high_small = high.resize((800, 128))
 
         buf_o = io.BytesIO(); orig_small.save(buf_o, "PNG")
         buf_h = io.BytesIO(); high_small.save(buf_h, "PNG")
@@ -216,7 +216,7 @@ if uploaded_files:
 
     def img_formatter(b):
         import base64
-        return f'<img src="data:image/png;base64,{base64.b64encode(b).decode()}" width="300"/>'
+        return f'<img src="data:image/png;base64,{base64.b64encode(b).decode()}" width="800"/>'
 
     st.subheader(f"Results ({len(results)} images)")
     st.markdown(
