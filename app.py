@@ -12,6 +12,20 @@ import torch.nn.functional as F
 import torchvision.models as models
 from torchvision.models import ResNet18_Weights
 
+# At the top of the file, after imports
+st.markdown("""
+    <style>
+    .stTable img {
+        width: 100% !important;
+        max-width: 900px !important;
+        height: auto !important;
+    }
+    div[data-testid="stTable"] {
+        overflow-x: auto;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 
 # ========================== MODEL DEFINITION ==========================
 # Paste this from your notebook (or use this minimal working version)
@@ -194,8 +208,8 @@ if uploaded_files:
         orig, high = create_visualizations(img, mask_tensor, thresh)
 
         # Thumbnails
-        orig_small = orig.resize((1600, 256))   # keep aspect ~1600:256
-        high_small = high.resize((1600, 256))
+        orig_small = orig.resize((800, 128))   # keep aspect ~1600:256
+        high_small = high.resize((800, 128))
 
         buf_o = io.BytesIO(); orig_small.save(buf_o, "PNG")
         buf_h = io.BytesIO(); high_small.save(buf_h, "PNG")
@@ -216,7 +230,7 @@ if uploaded_files:
 
     def img_formatter(b):
         import base64
-        return f'<img src="data:image/png;base64,{base64.b64encode(b).decode()}" width="1600"/>'
+        return f'<img src="data:image/png;base64,{base64.b64encode(b).decode()}" width="800"/>'
 
     st.subheader(f"Results ({len(results)} images)")
     st.markdown(
