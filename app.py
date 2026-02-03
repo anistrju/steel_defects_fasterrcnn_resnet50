@@ -208,8 +208,8 @@ if uploaded_files:
         orig, high = create_visualizations(img, mask_tensor, thresh)
 
         # Thumbnails
-        orig_small = orig.resize((400, 64))   # keep aspect ~1600:256
-        high_small = high.resize((400, 64))
+        orig_small = orig.resize((300, 48))   # keep aspect ~1600:256
+        high_small = high.resize((300, 48))
 
         buf_o = io.BytesIO()
         orig_small.save(buf_o, "PNG")
@@ -235,7 +235,7 @@ if uploaded_files:
     def small_img_formatter(b):
         import base64
         b64 = base64.b64encode(b).decode()
-        return f'<img src="data:image/png;base64,{b64}" width="280" style="border-radius:4px;"/>'
+        return f'<img src="data:image/png;base64,{b64}" width="240" style="border-radius:4px;"/>'
 
     st.subheader(f"Results ({len(results)} images)")
 
@@ -252,7 +252,7 @@ if uploaded_files:
                 text-align: center;
             }
             .stTable img {
-                max-width: 280px;
+                max-width: 240px;
                 cursor: pointer;
                 border-radius: 4px;
                 box-shadow: 0 1px 4px rgba(0,0,0,0.1);
@@ -275,14 +275,4 @@ if uploaded_files:
         unsafe_allow_html=True
     )
 
-    # Click interaction: show full images in expander / modal simulation
-    st.markdown("**Click an image filename below to see full-size version**")
-
-    for idx, row in df.iterrows():
-        with st.expander(f"📸 {row['Filename']} – Full Size", expanded=False):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.image(row["Original"], caption="Original", use_column_width=True)
-            with col2:
-                st.image(row["Highlighted"], caption="Highlighted", use_column_width=True)
-            st.markdown(f"**Defects:** {row['Defects Detected']}")
+    
