@@ -8,28 +8,56 @@ import io
 import numpy as np
 import pandas as pd
 from typing import List, Tuple
+import torch.nn.functional as F
+import torchvision.models as models
+from torchvision.models import ResNet18_Weights
 
 
 # ========================== MODEL DEFINITION ==========================
 # Paste this from your notebook (or use this minimal working version)
 class UNetResNet18(nn.Module):
-    def __init__(self, num_classes=4, pretrained=True):
+    def __init__(self, num_classes=4, pretrained=False, decoder_mode="add", dropout=0.0):
         super().__init__()
-        resnet = torchvision.models.resnet18(weights="IMAGENET1K_V1" if pretrained else None)
-        
-        self.enc1 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)   # 64, 128x800
-        self.enc2 = resnet.layer1                                          # 64, 128x800
-        self.enc3 = resnet.layer2                                          # 128, 64x400
-        self.enc4 = resnet.layer3                                          # 256, 32x200
-        self.enc5 = resnet.layer4                                          # 512, 16x100
+        # Encoder backbone
+        base = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
+        del base.fc, base.avgpool
 
-        self.up5 = nn.Sequential(nn.ConvTranspose2d(512, 256, 2, stride=2), nn.ReLU())
-        self.up4 = nn.Sequential(nn.ConvTranspose2d(256+256, 128, 2, stride=2), nn.ReLU())
-        self.up3 = nn.Sequential(nn.ConvTranspose2d(128+128, 64, 2, stride=2), nn.ReLU())
-        self.up2 = nn.Sequential(nn.ConvTranspose2d(64+64, 64, 2, stride=2), nn.ReLU())
-        self.up1 = nn.Sequential(nn.ConvTranspose2d(64+64, 32, 2, stride=2), nn.ReLU())
+        self.enc1 = nn.Sequential(base.conv1, base.bn1, base.relu)
+        self.enc2 = nn.Sequential(base.maxpool, base.layer1)
+        self.enc3 = base.layer2
+        self.enc4 = base.layer3
+        self.enc5 = base.layer4
 
-        self.final = nn.Conv2d(32, num_classes, kernel_size=1)
+        self.mode = decoder_mode
+
+        def up_block(in_ch, out_ch, use_concat=False):
+            layers = [
+                nn.ConvTranspose2d(in_ch, out_ch, 2, 2),
+                nn.BatchNorm2d(out_ch),
+                nn.ReLU(inplace=True)
+            ]
+            if dropout > 0:
+                layers.append(nn.Dropout2d(p=dropout))
+            if use_concat:
+                layers += [
+                    nn.Conv2d(out_ch*2, out_ch, 3, padding=1),
+                    nn.BatchNorm2d(out_ch),
+                    nn.ReLU(inplace=True)
+                ]
+            return nn.Sequential(*layers)
+
+        if self.mode == "add":
+            self.up4 = up_block(512, 256)
+            self.up3 = up_block(256, 128)
+            self.up2 = up_block(128, 64)
+            self.up1 = up_block(64, 64)
+        else:  # concat
+            self.up4 = up_block(512, 256, use_concat=True)
+            self.up3 = up_block(256, 128, use_concat=True)
+            self.up2 = up_block(128, 64, use_concat=True)
+            self.up1 = up_block(64, 64, use_concat=True)
+
+        self.final = nn.Conv2d(64, num_classes, 1)
 
     def forward(self, x):
         e1 = self.enc1(x)
@@ -38,13 +66,20 @@ class UNetResNet18(nn.Module):
         e4 = self.enc4(e3)
         e5 = self.enc5(e4)
 
-        d5 = self.up5(e5)
-        d4 = self.up4(torch.cat([d5, e4], dim=1))
-        d3 = self.up3(torch.cat([d4, e3], dim=1))
-        d2 = self.up2(torch.cat([d3, e2], dim=1))
-        d1 = self.up1(torch.cat([d2, e1], dim=1))
+        if self.mode == "add":
+            d4 = self.up4(e5) + e4
+            d3 = self.up3(d4) + e3
+            d2 = self.up2(d3) + e2
+            d1 = self.up1(d2) + e1
+        else:  # concat
+            d4 = self.up4(torch.cat([F.interpolate(e5, size=e4.shape[2:], mode="bilinear", align_corners=False), e4], 1))
+            d3 = self.up3(torch.cat([F.interpolate(d4, size=e3.shape[2:], mode="bilinear", align_corners=False), e3], 1))
+            d2 = self.up2(torch.cat([F.interpolate(d3, size=e2.shape[2:], mode="bilinear", align_corners=False), e2], 1))
+            d1 = self.up1(torch.cat([F.interpolate(d2, size=e1.shape[2:], mode="bilinear", align_corners=False), e1], 1))
 
-        return self.final(d1)   # (B, 4, 256, 1600)
+        out = self.final(d1)
+        out = F.interpolate(out, size=x.shape[2:], mode="bilinear", align_corners=False)
+        return out
 
 # ========================== CONFIG ==========================
 NUM_CLASSES = 4
@@ -72,11 +107,32 @@ inference_transform = T.Compose([
 @st.cache_resource
 def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = UNetResNet18(num_classes=NUM_CLASSES, pretrained=False)
-    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=False)
-    model.load_state_dict(state_dict)
-    model.to(device).eval()
+    
+    # Create model with EXACT same parameters as training
+    model = UNetResNet18(
+        num_classes=4,                  # matches CFG["NUM_CLASSES"]
+        pretrained=False,               # we load custom weights → don't load ImageNet again
+        decoder_mode="add",             # critical: matches CFG["DECODER_MODE"]
+        dropout=0.0                     # default from your class
+    )
+    
+    # Load checkpoint
+    checkpoint_path = "best_model.pth"  # adjust if your file has different name
+    state_dict = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    # Handle possible DataParallel / DistributedDataParallel wrapper
+    if list(state_dict.keys())[0].startswith("module."):
+        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+    
+    # Load weights — strict=True will tell us immediately if there's still mismatch
+    model.load_state_dict(state_dict, strict=True)
+    
+    model.to(device)
+    model.eval()
+    
+    st.success(f"Model loaded successfully on {device}")
     return model, device
+
 
 model, device = load_model()
 
