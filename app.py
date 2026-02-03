@@ -1,221 +1,172 @@
 import streamlit as st
 import torch
-from torchvision.models.detection import FasterRCNN
-from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
-from torchvision.models import ResNet50_Weights
-from torchvision.transforms import v2 as T
-from PIL import Image, ImageDraw, ImageEnhance, ImageOps
+import torch.nn as nn
+import torchvision.transforms.v2 as T
+from PIL import Image, ImageDraw, ImageOps, ImageEnhance
 import io
+import numpy as np
 import pandas as pd
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 
-# ─────────────────────────────────────────────────────────────
-# Configuration
-# ─────────────────────────────────────────────────────────────
-NUM_CLASSES = 5
-SCORE_THRESHOLD = 0.3          # ← raised default (0.01 was too low)
-WEIGHTS_PATH = "/app/best_model.pth"
+# ========================== MODEL DEFINITION ==========================
+# Paste this from your notebook (or use this minimal working version)
+class UNetResNet18(nn.Module):
+    def __init__(self, num_classes=4, pretrained=True):
+        super().__init__()
+        resnet = torchvision.models.resnet18(weights="IMAGENET1K_V1" if pretrained else None)
+        
+        self.enc1 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)   # 64, 128x800
+        self.enc2 = resnet.layer1                                          # 64, 128x800
+        self.enc3 = resnet.layer2                                          # 128, 64x400
+        self.enc4 = resnet.layer3                                          # 256, 32x200
+        self.enc5 = resnet.layer4                                          # 512, 16x100
 
-CLASS_MAP = {
-    1: "Defect_1",
-    2: "Defect_2",
-    3: "Defect_3",
-    4: "Defect_4"
-}
+        self.up5 = nn.Sequential(nn.ConvTranspose2d(512, 256, 2, stride=2), nn.ReLU())
+        self.up4 = nn.Sequential(nn.ConvTranspose2d(256+256, 128, 2, stride=2), nn.ReLU())
+        self.up3 = nn.Sequential(nn.ConvTranspose2d(128+128, 64, 2, stride=2), nn.ReLU())
+        self.up2 = nn.Sequential(nn.ConvTranspose2d(64+64, 64, 2, stride=2), nn.ReLU())
+        self.up1 = nn.Sequential(nn.ConvTranspose2d(64+64, 32, 2, stride=2), nn.ReLU())
 
+        self.final = nn.Conv2d(32, num_classes, kernel_size=1)
+
+    def forward(self, x):
+        e1 = self.enc1(x)
+        e2 = self.enc2(e1)
+        e3 = self.enc3(e2)
+        e4 = self.enc4(e3)
+        e5 = self.enc5(e4)
+
+        d5 = self.up5(e5)
+        d4 = self.up4(torch.cat([d5, e4], dim=1))
+        d3 = self.up3(torch.cat([d4, e3], dim=1))
+        d2 = self.up2(torch.cat([d3, e2], dim=1))
+        d1 = self.up1(torch.cat([d2, e1], dim=1))
+
+        return self.final(d1)   # (B, 4, 256, 1600)
+
+# ========================== CONFIG ==========================
+NUM_CLASSES = 4
+THRESHOLD_DEFAULT = 0.5
+MODEL_PATH = "best_model.pth"          # ← change if needed
+HEIGHT, WIDTH = 256, 1600
+
+CLASS_MAP = {1: "Defect_1", 2: "Defect_2", 3: "Defect_3", 4: "Defect_4"}
 COLOR_MAP = {
-    1: (255, 80, 80, 180),   # reddish
-    2: (80, 200, 80, 180),   # greenish
-    3: (80, 80, 255, 180),   # blueish
-    4: (255, 220, 60, 180),  # yellow
+    1: (255, 80, 80, 180),
+    2: (80, 200, 80, 180),
+    3: (80, 80, 255, 180),
+    4: (255, 220, 60, 180),
 }
 
-# ─────────────────────────────────────────────────────────────
-# Transforms & Model
-# ─────────────────────────────────────────────────────────────
-def get_inference_transform():
-    return T.Compose([
-        T.ToImage(),
-        T.ToDtype(torch.float32, scale=True),
-        T.Resize((800, 800), antialias=True),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+# ========================== TRANSFORMS ==========================
+inference_transform = T.Compose([
+    T.ToImage(),
+    T.Resize((HEIGHT, WIDTH), antialias=True),
+    T.ToDtype(torch.float32, scale=True),
+    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
 
-def get_model():
-    backbone = resnet_fpn_backbone(
-        "resnet50", weights=ResNet50_Weights.IMAGENET1K_V1, trainable_layers=0
-    )
-    return FasterRCNN(backbone, num_classes=NUM_CLASSES)
-
+# ========================== MODEL LOAD ==========================
 @st.cache_resource
-def load_model(weights_path: str):
+def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = get_model()
-    state_dict = torch.load(weights_path, map_location=device, weights_only=False)
-    if list(state_dict.keys())[0].startswith("module."):
-        state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=True)
-    model.to(device)
-    model.eval()
+    model = UNetResNet18(num_classes=NUM_CLASSES, pretrained=False)
+    state_dict = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+    model.load_state_dict(state_dict)
+    model.to(device).eval()
     return model, device
 
-# ─────────────────────────────────────────────────────────────
-# Visualization: create original + highlighted version
-# ─────────────────────────────────────────────────────────────
-def create_visualizations(pil_img: Image.Image, detections: List[Dict], thresh: float = 0.3) -> Tuple[Image.Image, Image.Image]:
+model, device = load_model()
+
+# ========================== VISUALIZATION ==========================
+def create_visualizations(pil_img: Image.Image, mask_tensor: torch.Tensor, thresh: float) -> Tuple[Image.Image, Image.Image]:
     original = pil_img.copy()
-
-    # Always start with RGBA — avoids almost all mode-related surprises
     img_rgba = pil_img.convert("RGBA")
-
-    # Grayscale + darken (still RGBA)
     gray = ImageOps.grayscale(img_rgba).convert("RGBA")
-    enhancer = ImageEnhance.Brightness(gray)
-    darkened = enhancer.enhance(0.45)
+    darkened = ImageEnhance.Brightness(gray).enhance(0.45)
 
     draw = ImageDraw.Draw(darkened, "RGBA")
+    mask_np = (mask_tensor.cpu().numpy() > thresh).astype(np.uint8)  # (4, H, W)
 
-    kept_dets = [d for d in detections if d["score"] >= thresh]
+    for c in range(NUM_CLASSES):
+        if mask_np[c].max() == 0:
+            continue
+        color = COLOR_MAP.get(c+1, (255, 255, 255, 180))
+        mask_img = Image.fromarray(mask_np[c] * 255).convert("L")
+        overlay = Image.new("RGBA", pil_img.size, color)
+        darkened.paste(overlay, (0, 0), mask_img)
 
-    for det in kept_dets:
-        x1, y1, x2, y2 = [int(round(v)) for v in det["box"]]  # ensure integers
-        label = det["class"]
-        score = det["score"]
-        color = COLOR_MAP.get(int(label.split("_")[1]), (220, 220, 60, 200))
-
-        # Draw with transparency
-        draw.rectangle(
-            [(x1, y1), (x2, y2)],
-            outline=color[:3] + (255,),
-            fill=color,           # 4-tuple with alpha
-            width=4
-        )
-
-        # Label background + text
-        text = f"{label} {score:.2f}"
-        # Simple text with background (no font loading needed)
-        draw.rectangle(
-            (x1, y1 - 24, x1 + len(text)*10 + 10, y1 - 2),  # rough size
-            fill=(0, 0, 0, 180)
-        )
-        draw.text((x1 + 5, y1 - 22), text, fill=(255, 255, 255, 255))
-
-    highlighted = darkened.convert("RGB")  # final output RGB for display
+    highlighted = darkened.convert("RGB")
     return original, highlighted
 
-# ─────────────────────────────────────────────────────────────
-# Inference
-# ─────────────────────────────────────────────────────────────
-def run_inference(img: Image.Image, model, device, transform, score_threshold=SCORE_THRESHOLD) -> List[Dict]:
-    img_tensor, _ = transform(img, {})
-    img_tensor = img_tensor.to(device).unsqueeze(0)
+# ========================== INFERENCE ==========================
+def run_inference(pil_img: Image.Image, model, device, transform, thresh: float):
+    tensor = transform(pil_img).unsqueeze(0).to(device)          # (1, 3, 256, 1600)
 
     with torch.no_grad():
-        output = model(img_tensor)[0]
+        logits = model(tensor)                                   # (1, 4, 256, 1600)
+        probs = torch.sigmoid(logits)[0]                         # (4, 256, 1600)
 
-    keep = output["scores"] >= score_threshold
+    # Per-class binary masks
+    binary_masks = (probs > thresh).float()
 
-    boxes = output["boxes"][keep].cpu().tolist()
-    labels = output["labels"][keep].cpu().tolist()
-    scores = output["scores"][keep].cpu().tolist()
+    # Classes present
+    present_classes = [CLASS_MAP[i+1] for i in range(NUM_CLASSES) if binary_masks[i].max() > 0]
 
-    detections = []
-    for box, lbl, sc in zip(boxes, labels, scores):
-        class_name = CLASS_MAP.get(lbl, f"Class_{lbl}")
-        detections.append({
-            "class": class_name,
-            "score": round(sc, 3),
-            "box": [round(v, 1) for v in box]
-        })
+    return binary_masks, present_classes
 
-    return detections
+# ========================== STREAMLIT APP ==========================
+st.title("Steel Defect Segmentation (U-Net)")
+st.markdown("Upload steel strip images → pixel-level defect masks → colored overlay")
 
-# ─────────────────────────────────────────────────────────────
-# Streamlit App
-# ─────────────────────────────────────────────────────────────
-st.title("Steel Defect Detection")
-st.markdown("Upload images → detects defects → shows **original** and **highlighted** versions + results table")
+model, device = load_model()
 
-model, device = load_model(WEIGHTS_PATH)
-transform = get_inference_transform()
+thresh = st.slider("Mask threshold", 0.1, 0.9, THRESHOLD_DEFAULT, 0.05)
 
-score_thresh = st.slider(
-    "Confidence threshold",
-    min_value=0.1,
-    max_value=0.9,
-    value=float(SCORE_THRESHOLD),
-    step=0.05,
-    help="Lower = more detections (may include false positives)"
-)
-
-uploaded_files = st.file_uploader(
-    "Choose images (multiple allowed)",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=True
-)
+uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
 if uploaded_files:
     results = []
     progress = st.progress(0)
-    status_text = st.empty()
 
     for i, file in enumerate(uploaded_files):
-        status_text.text(f"Processing {file.name} ({i+1}/{len(uploaded_files)}) ...")
+        img = Image.open(io.BytesIO(file.read())).convert("RGB")
 
-        try:
-            img = Image.open(io.BytesIO(file.read())).convert("RGB")
-            detections = run_inference(img, model, device, transform, score_thresh)
+        mask_tensor, present_classes = run_inference(img, model, device, inference_transform, thresh)
+        orig, high = create_visualizations(img, mask_tensor, thresh)
 
-            orig_img, high_img = create_visualizations(img, detections, score_thresh)
+        # Thumbnails
+        orig_small = orig.resize((300, 48))   # keep aspect ~1600:256
+        high_small = high.resize((300, 48))
 
-            # Resize for table preview (small thumbnails)
-            orig_small = orig_img.copy().resize((180, 180))
-            high_small = high_img.copy().resize((180, 180))
+        buf_o = io.BytesIO(); orig_small.save(buf_o, "PNG")
+        buf_h = io.BytesIO(); high_small.save(buf_h, "PNG")
 
-            buf_orig = io.BytesIO()
-            buf_high = io.BytesIO()
-            orig_small.save(buf_orig, format="PNG")
-            high_small.save(buf_high, format="PNG")
+        results.append({
+            "Filename": file.name,
+            "Original": buf_o.getvalue(),
+            "Highlighted": buf_h.getvalue(),
+            "Defects Detected": ", ".join(present_classes) if present_classes else "None",
+            "Num Classes": len(present_classes),
+            "Mask Tensor Shape": str(mask_tensor.shape)
+        })
 
-            results.append({
-                "Filename": file.name,
-                "Original": buf_orig.getvalue(),
-                "Highlighted": buf_high.getvalue(),
-                "Num Detections": len(detections),
-                "Detections": detections if detections else "None"
-            })
+        progress.progress((i+1) / len(uploaded_files))
 
-        except Exception as e:
-            st.error(f"Error on {file.name}: {str(e)}")
+    # Display table
+    df = pd.DataFrame(results)
 
-        progress.progress((i + 1) / len(uploaded_files))
+    def img_formatter(b):
+        import base64
+        return f'<img src="data:image/png;base64,{base64.b64encode(b).decode()}" width="300"/>'
 
-    status_text.text("Processing complete.")
+    st.subheader(f"Results ({len(results)} images)")
+    st.markdown(
+        df.style
+        .format({"Original": img_formatter, "Highlighted": img_formatter})
+        .to_html(escape=False),
+        unsafe_allow_html=True
+    )
 
-    if results:
-        df = pd.DataFrame(results)
-
-        def image_formatter(img_bytes):
-            import base64
-            b64 = base64.b64encode(img_bytes).decode()
-            return f'<img src="data:image/png;base64,{b64}" width="180" />'
-
-        st.subheader(f"Results ({len(results)} images)")
-
-        st.markdown(
-            df.style
-            .format({
-                "Original": image_formatter,
-                "Highlighted": image_formatter
-            })
-            .set_properties(**{'text-align': 'center'}, subset=["Original", "Highlighted"])
-            .to_html(escape=False),
-            unsafe_allow_html=True
-        )
-
-        # Optional: expandable raw data
-        with st.expander("Raw detection details (JSON-like)", expanded=False):
-            st.json([{"filename": r["Filename"], "detections": r["Detections"]} for r in results])
-
-    else:
-        st.info("No images were successfully processed.")
+    with st.expander("Raw mask info"):
+        st.json([{r["Filename"]: {"classes": r["Defects Detected"], "shape": r["Mask Tensor Shape"]}} for r in results])
