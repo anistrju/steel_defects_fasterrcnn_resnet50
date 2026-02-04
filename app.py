@@ -175,6 +175,7 @@ def run_inference(pil_img: Image.Image, model, device, transform, thresh: float)
 
     return binary_masks, present_classes
 
+
 # ========================== STREAMLIT APP ==========================
 st.title("Steel Defect Segmentation (U-Net)")
 st.markdown("Upload steel strip images → pixel-level defect masks → colored overlay")
@@ -195,15 +196,17 @@ if uploaded_files:
         mask_tensor, present_classes = run_inference(img, model, device, inference_transform, thresh)
         orig, high = create_visualizations(img, mask_tensor, thresh)
 
-        # Thumbnails
-        orig_small = orig.resize((300, 48))   # keep aspect ~1600:256
-        high_small = high.resize((300, 48))
+        # Thumbnails — small size so table doesn't explode
+        orig_small = orig.resize((320, 51))   # ≈1600:256 aspect ratio
+        high_small = high.resize((320, 51))
 
         buf_o = io.BytesIO()
         orig_small.save(buf_o, "PNG")
-        
+        buf_o.seek(0)
+
         buf_h = io.BytesIO()
         high_small.save(buf_h, "PNG")
+        buf_h.seek(0)
 
         results.append({
             "Filename": file.name,
@@ -215,69 +218,79 @@ if uploaded_files:
 
         progress.progress((i + 1) / len(uploaded_files))
 
-    # Display table
+    # Create DataFrame
     df = pd.DataFrame(results)
 
-    # Small thumbnails (fit to screen)
-    def small_img_formatter(b):
+    # ────────────────────────────────────────────────
+    #   IMAGE FORMATTER — small thumbnails
+    # ────────────────────────────────────────────────
+    def thumbnail_formatter(b):
         import base64
         b64 = base64.b64encode(b).decode()
         return f"""
-    <img
-        src="data:image/png;base64,{b64}"
-        width="240"
-        style="border-radius:4px; cursor:pointer;"
-        onclick="window.parent.postMessage({{type:'LIGHTBOX', src:this.src}}, '*')"
-    />
-    """
+        <img 
+            src="data:image/png;base64,{b64}" 
+            width="240" 
+            style="border-radius:4px; object-fit:cover;"
+        />
+        """
 
-    
-
-    st.subheader(f"Results ({len(results)} images)")
-
-   
-
-    # ---------- TABLE STYLING ----------
+    # ────────────────────────────────────────────────
+    #   CSS: hover zoom effect + better table behavior
+    # ────────────────────────────────────────────────
     st.markdown("""
     <style>
-    /* Enable horizontal scrolling for wide tables */
-    div[data-testid="stTable"] {
-        overflow-x: auto;
-        max-width: 100%;
-    }
+        /* Make table scrollable horizontally if needed */
+        div[data-testid="stTable"] {
+            overflow-x: auto;
+            max-width: 100%;
+        }
 
-    /* Table cell styling */
-    .stTable td, .stTable th {
-        white-space: nowrap;
-        padding: 6px 8px !important;
-        text-align: center;
-    }
+        /* Table cell styling */
+        .stTable td, .stTable th {
+            padding: 8px 10px !important;
+            text-align: center;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
 
-    /* Thumbnail images */
-    .stTable img {
-        max-width: 240px;
-        cursor: pointer;
-        border-radius: 4px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-        transition: transform 0.15s ease;
-    }
-    .stTable img:hover {
-        transform: scale(1.03);
-    }
+        /* Image styling */
+        .stTable img {
+            transition: transform 0.25s ease;
+            transform-origin: top left;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            border-radius: 4px;
+        }
+
+        /* Zoom on hover */
+        .stTable img:hover {
+            transform: scale(2.4);          /* adjust this value: 2.0–3.5 */
+            z-index: 10;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        }
+
+        /* Make sure cells don't collapse */
+        .stTable td[data-testid="cell"] {
+            min-width: 260px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
-    # ---------- DATAFRAME TABLE ----------
+    # ────────────────────────────────────────────────
+    #   Display results table
+    # ────────────────────────────────────────────────
+    st.subheader(f"Results ({len(results)} images)")
+
     st.markdown(
         df.style
         .format({
-            "Original": small_img_formatter,
-            "Highlighted": small_img_formatter
+            "Original": thumbnail_formatter,
+            "Highlighted": thumbnail_formatter
         })
         .set_properties(
             **{
                 "text-align": "center",
-                "min-width": "240px"
+                "min-width": "260px"     # helps prevent squeezing
             },
             subset=["Original", "Highlighted"]
         )
@@ -285,50 +298,6 @@ if uploaded_files:
         unsafe_allow_html=True
     )
 
-    # ---------- IMAGE LIGHTBOX (JS MUST USE components.html) ----------
-    components.html(
-        """
-        <style>
-        .img-lightbox {
-            position: fixed;
-            inset: 0;
-            z-index: 9999;
-            background: rgba(0,0,0,0.85);
-            display: none;
-            align-items: center;
-            justify-content: center;
-        }
-        .img-lightbox img {
-            max-width: 90%;
-            max-height: 90%;
-            border-radius: 6px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-        }
-        </style>
-
-        <div class="img-lightbox" id="imgLightbox">
-            <img id="imgLightboxTarget" />
-        </div>
-
-        <script>
-        window.addEventListener("message", function (event) {
-            if (event.data?.type === "LIGHTBOX") {
-                const lightbox = document.getElementById("imgLightbox");
-                const target = document.getElementById("imgLightboxTarget");
-                target.src = event.data.src;
-                lightbox.style.display = "flex";
-            }
-        });
-
-        document.getElementById("imgLightbox").onclick = function () {
-            this.style.display = "none";
-        };
-        </script>
-        """,
-        height=0,
-        )
-
-    
-
-
-    
+    # Optional: keep your raw info expander
+    with st.expander("Raw mask info"):
+        st.json([{r["Filename"]: {"classes": r["Defects Detected"]}} for r in results])
