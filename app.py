@@ -222,8 +222,7 @@ if uploaded_files:
             "Original": buf_o.getvalue(),
             "Highlighted": buf_h.getvalue(),
             "Defects Detected": ", ".join(present_classes) if present_classes else "None",
-            "Num Classes": len(present_classes),
-            "Mask Tensor Shape": str(mask_tensor.shape)
+            "Num Classes": len(present_classes)
         })
 
         progress.progress((i + 1) / len(uploaded_files))
@@ -269,10 +268,56 @@ if uploaded_files:
         })
         .set_properties(**{
             'text-align': 'center',
-            'min-width': '300px'   # helps control column width
+            'min-width': '240px'   # helps control column width
         }, subset=["Original", "Highlighted"])
         .to_html(escape=False),
         unsafe_allow_html=True
     )
+    st.markdown("""
+<style>
+/* Lightbox overlay */
+.img-lightbox {
+    position: fixed;
+    z-index: 9999;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Enlarged image */
+.img-lightbox img {
+    max-width: 90%;
+    max-height: 90%;
+    border-radius: 6px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+
+/* Smooth zoom effect */
+.stTable img {
+    transition: transform 0.15s ease;
+}
+.stTable img:hover {
+    transform: scale(1.03);
+}
+</style>
+
+<div class="img-lightbox" id="imgLightbox" onclick="this.style.display='none'">
+    <img id="imgLightboxTarget" />
+</div>
+
+<script>
+document.addEventListener("click", function (e) {
+    if (e.target.tagName === "IMG" && e.target.closest(".stTable")) {
+        const lightbox = document.getElementById("imgLightbox");
+        const target = document.getElementById("imgLightboxTarget");
+        target.src = e.target.src;
+        lightbox.style.display = "flex";
+    }
+});
+</script>
+""", unsafe_allow_html=True)
+
 
     
