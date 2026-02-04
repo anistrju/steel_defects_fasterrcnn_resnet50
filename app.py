@@ -1,3 +1,4 @@
+import base64
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -11,20 +12,7 @@ from typing import List, Tuple
 import torch.nn.functional as F
 import torchvision.models as models
 from torchvision.models import ResNet18_Weights
-
-# At the top of the file, after imports
-st.markdown("""
-    <style>
-    .stTable img {
-        width: 100% !important;
-        max-width: 900px !important;
-        height: auto !important;
-    }
-    div[data-testid="stTable"] {
-        overflow-x: auto;
-    }
-    </style>
-""", unsafe_allow_html=True)
+import streamlit.components.v1 as components
 
 
 # ========================== MODEL DEFINITION ==========================
@@ -234,90 +222,113 @@ if uploaded_files:
     def small_img_formatter(b):
         import base64
         b64 = base64.b64encode(b).decode()
-        return f'<img src="data:image/png;base64,{b64}" width="240" style="border-radius:4px;"/>'
+        return f"""
+    <img
+        src="data:image/png;base64,{b64}"
+        width="240"
+        style="border-radius:4px; cursor:pointer;"
+        onclick="window.parent.postMessage({{type:'LIGHTBOX', src:this.src}}, '*')"
+    />
+    """
+
+    
 
     st.subheader(f"Results ({len(results)} images)")
 
-    # Force better table layout + prevent overflow
+   
+
+    # ---------- TABLE STYLING ----------
     st.markdown("""
-        <style>
-            div[data-testid="stTable"] {
-                overflow-x: auto;
-                max-width: 100%;
-            }
-            .stTable td, .stTable th {
-                white-space: nowrap;
-                padding: 6px 8px !important;
-                text-align: center;
-            }
-            .stTable img {
-                max-width: 240px;
-                cursor: pointer;
-                border-radius: 4px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-            }
-        </style>
+    <style>
+    /* Enable horizontal scrolling for wide tables */
+    div[data-testid="stTable"] {
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    /* Table cell styling */
+    .stTable td, .stTable th {
+        white-space: nowrap;
+        padding: 6px 8px !important;
+        text-align: center;
+    }
+
+    /* Thumbnail images */
+    .stTable img {
+        max-width: 240px;
+        cursor: pointer;
+        border-radius: 4px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+        transition: transform 0.15s ease;
+    }
+    .stTable img:hover {
+        transform: scale(1.03);
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-    # Display table with small images
+    # ---------- DATAFRAME TABLE ----------
     st.markdown(
         df.style
         .format({
             "Original": small_img_formatter,
             "Highlighted": small_img_formatter
         })
-        .set_properties(**{
-            'text-align': 'center',
-            'min-width': '240px'   # helps control column width
-        }, subset=["Original", "Highlighted"])
+        .set_properties(
+            **{
+                "text-align": "center",
+                "min-width": "240px"
+            },
+            subset=["Original", "Highlighted"]
+        )
         .to_html(escape=False),
         unsafe_allow_html=True
     )
-    st.markdown("""
-<style>
-/* Lightbox overlay */
-.img-lightbox {
-    position: fixed;
-    z-index: 9999;
-    inset: 0;
-    background: rgba(0,0,0,0.85);
-    display: none;
-    align-items: center;
-    justify-content: center;
-}
 
-/* Enlarged image */
-.img-lightbox img {
-    max-width: 90%;
-    max-height: 90%;
-    border-radius: 6px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-}
+    # ---------- IMAGE LIGHTBOX (JS MUST USE components.html) ----------
+    components.html(
+        """
+        <style>
+        .img-lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0,0,0,0.85);
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .img-lightbox img {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 6px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        </style>
 
-/* Smooth zoom effect */
-.stTable img {
-    transition: transform 0.15s ease;
-}
-.stTable img:hover {
-    transform: scale(1.03);
-}
-</style>
+        <div class="img-lightbox" id="imgLightbox">
+            <img id="imgLightboxTarget" />
+        </div>
 
-<div class="img-lightbox" id="imgLightbox" onclick="this.style.display='none'">
-    <img id="imgLightboxTarget" />
-</div>
+        <script>
+        window.addEventListener("message", function (event) {
+            if (event.data?.type === "LIGHTBOX") {
+                const lightbox = document.getElementById("imgLightbox");
+                const target = document.getElementById("imgLightboxTarget");
+                target.src = event.data.src;
+                lightbox.style.display = "flex";
+            }
+        });
 
-<script>
-document.addEventListener("click", function (e) {
-    if (e.target.tagName === "IMG" && e.target.closest(".stTable")) {
-        const lightbox = document.getElementById("imgLightbox");
-        const target = document.getElementById("imgLightboxTarget");
-        target.src = e.target.src;
-        lightbox.style.display = "flex";
-    }
-});
-</script>
-""", unsafe_allow_html=True)
+        document.getElementById("imgLightbox").onclick = function () {
+            this.style.display = "none";
+        };
+        </script>
+        """,
+        height=0,
+        )
+
+    
 
 
     
