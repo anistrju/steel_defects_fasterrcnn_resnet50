@@ -194,16 +194,14 @@ model, device = load_model()
 #</style>
 #""", unsafe_allow_html=True)
 
-# Initialize session state flags (only once)
-#if "has_files" not in st.session_state:
-#    st.session_state.has_files = False
 
-# Callback to update the flag whenever files change
-#def update_has_files():
-#    st.session_state.has_files = bool(uploaded_files)  # True if list non-empty
+
+
 
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = []   # optional: remember what was already done
+
+
 
 with st.form(key="upload_form", clear_on_submit=True):
     uploaded_files = st.file_uploader(
@@ -212,17 +210,16 @@ with st.form(key="upload_form", clear_on_submit=True):
         accept_multiple_files=True,
         help="Select the images you want to process this time"
     )
+    
     submit_button = st.form_submit_button("Process these images")
 
-#if submit_button and uploaded_files:
 
-#uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+    
 
 if submit_button and uploaded_files:
-    # Reset the flag after successful submit (optional but nice)
-    #st.session_state.has_files = False
+    
     results = []
-    st.subheader("Processing results (shown as soon as ready)")
+    st.subheader(f"Processing results for {len(uploaded_files)} images")
 
     # We'll write each result into this container → it grows downward
     result_area = st.container()
