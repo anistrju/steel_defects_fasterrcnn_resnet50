@@ -177,12 +177,13 @@ def run_inference(pil_img: Image.Image, model, device, transform, thresh: float)
 
 
 # ========================== STREAMLIT APP ==========================
+st.set_page_config(layout="wide")   # ← uncomment at the VERY TOP of file if desired
 st.title("Steel Defect Segmentation (U-Net)")
 st.markdown("Upload steel strip images → pixel-level defect masks → colored overlay")
 
 model, device = load_model()
 
-thresh = st.slider("Mask threshold", 0.1, 0.9, THRESHOLD_DEFAULT, 0.05)
+#thresh = st.slider("Mask threshold", 0.1, 0.9, THRESHOLD_DEFAULT, 0.05)
 
 uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
@@ -193,111 +194,68 @@ if uploaded_files:
     for i, file in enumerate(uploaded_files):
         img = Image.open(io.BytesIO(file.read())).convert("RGB")
 
-        mask_tensor, present_classes = run_inference(img, model, device, inference_transform, thresh)
-        orig, high = create_visualizations(img, mask_tensor, thresh)
+        mask_tensor, present_classes = run_inference(img, model, device, inference_transform, THRESHOLD_DEFAULT)
+        orig, high = create_visualizations(img, mask_tensor, THRESHOLD_DEFAULT)
 
-        # Thumbnails — small size so table doesn't explode
-        orig_small = orig.resize((320, 51))   # ≈1600:256 aspect ratio
-        high_small = high.resize((320, 51))
-
+        # We keep full-size images here — st.image will handle scaling
         buf_o = io.BytesIO()
-        orig_small.save(buf_o, "PNG")
+        orig.save(buf_o, "PNG")
         buf_o.seek(0)
 
         buf_h = io.BytesIO()
-        high_small.save(buf_h, "PNG")
+        high.save(buf_h, "PNG")
         buf_h.seek(0)
 
         results.append({
             "Filename": file.name,
-            "Original": buf_o.getvalue(),
-            "Highlighted": buf_h.getvalue(),
+            "Original": buf_o.getvalue(),       # bytes
+            "Highlighted": buf_h.getvalue(),    # bytes
             "Defects Detected": ", ".join(present_classes) if present_classes else "None",
             "Num Classes": len(present_classes)
         })
 
         progress.progress((i + 1) / len(uploaded_files))
 
-    # Create DataFrame
-    df = pd.DataFrame(results)
-
     # ────────────────────────────────────────────────
-    #   IMAGE FORMATTER — small thumbnails
-    # ────────────────────────────────────────────────
-    def thumbnail_formatter(b):
-        import base64
-        b64 = base64.b64encode(b).decode()
-        return f"""
-        <img 
-            src="data:image/png;base64,{b64}" 
-            width="240" 
-            style="border-radius:4px; object-fit:cover;"
-        />
-        """
-
-    # ────────────────────────────────────────────────
-    #   CSS: hover zoom effect + better table behavior
-    # ────────────────────────────────────────────────
-    st.markdown("""
-    <style>
-        /* Make table scrollable horizontally if needed */
-        div[data-testid="stTable"] {
-            overflow-x: auto;
-            max-width: 100%;
-        }
-
-        /* Table cell styling */
-        .stTable td, .stTable th {
-            padding: 8px 10px !important;
-            text-align: center;
-            vertical-align: middle;
-            white-space: nowrap;
-        }
-
-        /* Image styling */
-        .stTable img {
-            transition: transform 0.25s ease;
-            transform-origin: top left;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-            border-radius: 4px;
-        }
-
-        /* Zoom on hover */
-        .stTable img:hover {
-            transform: scale(2.4);          /* adjust this value: 2.0–3.5 */
-            z-index: 10;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-        }
-
-        /* Make sure cells don't collapse */
-        .stTable td[data-testid="cell"] {
-            min-width: 260px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # ────────────────────────────────────────────────
-    #   Display results table
+    #   GALLERY LAYOUT — most reliable way to zoom/enlarge
     # ────────────────────────────────────────────────
     st.subheader(f"Results ({len(results)} images)")
 
-    st.markdown(
-        df.style
-        .format({
-            "Original": thumbnail_formatter,
-            "Highlighted": thumbnail_formatter
-        })
-        .set_properties(
-            **{
-                "text-align": "center",
-                "min-width": "260px"     # helps prevent squeezing
-            },
-            subset=["Original", "Highlighted"]
-        )
-        .to_html(escape=False),
-        unsafe_allow_html=True
-    )
+    # Optional: make layout wider if you have many images
+    
 
-    # Optional: keep your raw info expander
-    with st.expander("Raw mask info"):
-        st.json([{r["Filename"]: {"classes": r["Defects Detected"]}} for r in results])
+    cols = st.columns(3)  # change to 2 or 4 depending on your screen / image count
+
+    for idx, row in enumerate(results):
+        col_idx = idx % 3
+        with cols[col_idx]:
+            st.caption(f"**{row['Filename']}**")
+            
+            # Original
+            st.image(
+                row["Original"],
+                caption="Original",
+                width="stretch",
+                # output_format="PNG"   # usually not needed
+            )
+            
+            # Highlighted
+            st.image(
+                row["Highlighted"],
+                caption="Highlighted (defects overlay)",
+                width="stretch",
+            )
+            
+            st.markdown(f"**Defects detected:** {row['Defects Detected'] or 'None'}")
+            st.markdown(f"**Number of classes:** {row['Num Classes']}")
+            
+            st.divider()   # visual separation between cards
+
+    # Optional: simple table with text info only (no images)
+    with st.expander("Summary table (text only)", expanded=False):
+        df_summary = pd.DataFrame(results)[["Filename", "Defects Detected", "Num Classes"]]
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+
+    # Optional: raw JSON view
+    with st.expander("Raw results (JSON)", expanded=False):
+        st.json(results)
