@@ -15,6 +15,7 @@ from torchvision.models import ResNet18_Weights
 import streamlit.components.v1 as components
 
 
+
 # ========================== MODEL DEFINITION ==========================
 # Paste this from your notebook (or use this minimal working version)
 class UNetResNet18(nn.Module):
@@ -132,7 +133,7 @@ def load_model():
     model.to(device)
     model.eval()
     
-    st.success(f"Model loaded successfully on {device}")
+    #st.success(f"Model loaded successfully on {device}")
     return model, device
 
 
@@ -178,33 +179,92 @@ def run_inference(pil_img: Image.Image, model, device, transform, thresh: float)
 
 # ========================== STREAMLIT APP ==========================
 st.set_page_config(layout="wide")   # ← uncomment at the VERY TOP of file if desired
-st.title("Steel Defect Segmentation (U-Net)")
-st.markdown("Upload steel strip images → pixel-level defect masks → colored overlay")
+st.title("Steel Defect Segmentation")
+st.markdown("Upload steel strip images → get instantaneous defect detections with colored overlays")
+
+
 
 model, device = load_model()
 
 #thresh = st.slider("Mask threshold", 0.1, 0.9, THRESHOLD_DEFAULT, 0.05)
+#st.markdown("""
+#<style>
+#    .stFileUploaderFile       { display: none !important; }
+#    [data-testid="stFileUploaderPagination"] { display: none !important; }
+#</style>
+#""", unsafe_allow_html=True)
 
-uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+# Initialize session state flags (only once)
+#if "has_files" not in st.session_state:
+#    st.session_state.has_files = False
 
-if uploaded_files:
+# Callback to update the flag whenever files change
+#def update_has_files():
+#    st.session_state.has_files = bool(uploaded_files)  # True if list non-empty
+
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = []   # optional: remember what was already done
+
+with st.form(key="upload_form", clear_on_submit=True):
+    uploaded_files = st.file_uploader(
+        "Choose images",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        help="Select the images you want to process this time"
+    )
+    submit_button = st.form_submit_button("Process these images")
+
+#if submit_button and uploaded_files:
+
+#uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+
+if submit_button and uploaded_files:
+    # Reset the flag after successful submit (optional but nice)
+    #st.session_state.has_files = False
     results = []
+    st.subheader("Processing results (shown as soon as ready)")
+
+    # We'll write each result into this container → it grows downward
+    result_area = st.container()
+
     progress = st.progress(0)
+    status_text = st.empty()   # for current file name / message
+
+    processed_count = 0
 
     for i, file in enumerate(uploaded_files):
+        status_text.markdown(f"**Processing {file.name}** ({i+1}/{len(uploaded_files)}) …")
+
+        # ───── your original processing ─────
         img = Image.open(io.BytesIO(file.read())).convert("RGB")
 
         mask_tensor, present_classes = run_inference(img, model, device, inference_transform, THRESHOLD_DEFAULT)
         orig, high = create_visualizations(img, mask_tensor, THRESHOLD_DEFAULT)
 
-        # We keep full-size images here — st.image will handle scaling
-        buf_o = io.BytesIO()
-        orig.save(buf_o, "PNG")
-        buf_o.seek(0)
+        buf_o = io.BytesIO(); orig.save(buf_o, "PNG"); buf_o.seek(0)
+        buf_h = io.BytesIO(); high.save(buf_h, "PNG"); buf_h.seek(0)
 
-        buf_h = io.BytesIO()
-        high.save(buf_h, "PNG")
-        buf_h.seek(0)
+        
+        # ───── now immediately show this result ─────
+        with result_area:
+            cols = st.columns([1, 1])   # or [2,3] or whatever ratio you like
+
+            with cols[0]:
+                st.caption(f"**{file.name}**  –  Original")
+                st.image(buf_o.getvalue(), width="stretch")
+
+            with cols[1]:
+                st.caption("Highlighted (defects overlay)")
+                st.image(buf_h.getvalue(), width="stretch")
+
+            st.markdown(f"**Defects detected:** {', '.join(present_classes) or 'None'}")
+            st.markdown(f"**Number of classes:** {len(present_classes)}")
+            st.markdown("""
+<hr style="height:3px;border:none;background-color:black;"/>
+""", unsafe_allow_html=True)
+            
+
+        processed_count += 1
 
         results.append({
             "Filename": file.name,
@@ -214,48 +274,14 @@ if uploaded_files:
             "Num Classes": len(present_classes)
         })
 
-        progress.progress((i + 1) / len(uploaded_files))
+        progress.progress(processed_count / len(uploaded_files))
 
-    # ────────────────────────────────────────────────
-    #   GALLERY LAYOUT — most reliable way to zoom/enlarge
-    # ────────────────────────────────────────────────
-    st.subheader(f"Results ({len(results)} images)")
+    status_text.success("All images processed!")
 
-    # Optional: make layout wider if you have many images
-    
-
-    cols = st.columns(3)  # change to 2 or 4 depending on your screen / image count
-
-    for idx, row in enumerate(results):
-        col_idx = idx % 3
-        with cols[col_idx]:
-            st.caption(f"**{row['Filename']}**")
-            
-            # Original
-            st.image(
-                row["Original"],
-                caption="Original",
-                width="stretch",
-                # output_format="PNG"   # usually not needed
-            )
-            
-            # Highlighted
-            st.image(
-                row["Highlighted"],
-                caption="Highlighted (defects overlay)",
-                width="stretch",
-            )
-            
-            st.markdown(f"**Defects detected:** {row['Defects Detected'] or 'None'}")
-            st.markdown(f"**Number of classes:** {row['Num Classes']}")
-            
-            st.divider()   # visual separation between cards
 
     # Optional: simple table with text info only (no images)
     with st.expander("Summary table (text only)", expanded=False):
         df_summary = pd.DataFrame(results)[["Filename", "Defects Detected", "Num Classes"]]
-        st.dataframe(df_summary, use_container_width=True, hide_index=True)
+        st.dataframe(df_summary, width="stretch", hide_index=True)
 
-    # Optional: raw JSON view
-    with st.expander("Raw results (JSON)", expanded=False):
-        st.json(results)
+    
