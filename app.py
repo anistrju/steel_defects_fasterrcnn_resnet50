@@ -210,75 +210,72 @@ with st.form(key="upload_form", clear_on_submit=True):
         accept_multiple_files=True,
         help="Select the images you want to process this time"
     )
-    
     submit_button = st.form_submit_button("Process these images")
-
-
     
 
-if submit_button and uploaded_files:
-    
-    results = []
-    st.subheader(f"Processing results for {len(uploaded_files)} images")
+    if submit_button and uploaded_files:
+        results = []
+        st.subheader(f"Processing results for {len(uploaded_files)} images")
 
-    # We'll write each result into this container → it grows downward
-    result_area = st.container()
+        # We'll write each result into this container → it grows downward
+        result_area = st.container()
 
-    progress = st.progress(0)
-    status_text = st.empty()   # for current file name / message
+        progress = st.progress(0)
+        status_text = st.empty()   # for current file name / message
 
-    processed_count = 0
+        processed_count = 0
 
-    for i, file in enumerate(uploaded_files):
-        status_text.markdown(f"**Processing {file.name}** ({i+1}/{len(uploaded_files)}) …")
+        for i, file in enumerate(uploaded_files):
+            status_text.markdown(f"**Processing {file.name}** ({i+1}/{len(uploaded_files)}) …")
 
-        # ───── your original processing ─────
-        img = Image.open(io.BytesIO(file.read())).convert("RGB")
+            # ───── your original processing ─────
+            img = Image.open(io.BytesIO(file.read())).convert("RGB")
 
-        mask_tensor, present_classes = run_inference(img, model, device, inference_transform, THRESHOLD_DEFAULT)
-        orig, high = create_visualizations(img, mask_tensor, THRESHOLD_DEFAULT)
+            mask_tensor, present_classes = run_inference(img, model, device, inference_transform, THRESHOLD_DEFAULT)
+            orig, high = create_visualizations(img, mask_tensor, THRESHOLD_DEFAULT)
 
-        buf_o = io.BytesIO(); orig.save(buf_o, "PNG"); buf_o.seek(0)
-        buf_h = io.BytesIO(); high.save(buf_h, "PNG"); buf_h.seek(0)
+            buf_o = io.BytesIO(); orig.save(buf_o, "PNG"); buf_o.seek(0)
+            buf_h = io.BytesIO(); high.save(buf_h, "PNG"); buf_h.seek(0)
 
         
-        # ───── now immediately show this result ─────
-        with result_area:
-            cols = st.columns([1, 1])   # or [2,3] or whatever ratio you like
+            # ───── now immediately show this result ─────
+            with result_area:
+                cols = st.columns([1, 1])   # or [2,3] or whatever ratio you like
 
-            with cols[0]:
-                st.caption(f"**{file.name}**  –  Original")
-                st.image(buf_o.getvalue(), width="stretch")
+                with cols[0]:
+                    st.caption(f"**{file.name}**  –  Original")
+                    st.image(buf_o.getvalue(), width="stretch")
 
-            with cols[1]:
-                st.caption("Highlighted (defects overlay)")
-                st.image(buf_h.getvalue(), width="stretch")
+                with cols[1]:
+                    st.caption("Highlighted (defects overlay)")
+                    st.image(buf_h.getvalue(), width="stretch")
 
-            st.markdown(f"**Defects detected:** {', '.join(present_classes) or 'None'}")
-            st.markdown(f"**Number of classes:** {len(present_classes)}")
-            st.markdown("""
+                st.markdown(f"**Defects detected:** {', '.join(present_classes) or 'None'}")
+                st.markdown(f"**Number of classes:** {len(present_classes)}")
+                st.markdown("""
 <hr style="height:3px;border:none;background-color:black;"/>
 """, unsafe_allow_html=True)
             
 
-        processed_count += 1
+            processed_count += 1
 
-        results.append({
-            "Filename": file.name,
-            "Original": buf_o.getvalue(),       # bytes
-            "Highlighted": buf_h.getvalue(),    # bytes
-            "Defects Detected": ", ".join(present_classes) if present_classes else "None",
-            "Num Classes": len(present_classes)
-        })
+            results.append({
+                "Filename": file.name,
+                "Original": buf_o.getvalue(),       # bytes
+                "Highlighted": buf_h.getvalue(),    # bytes
+                "Defects Detected": ", ".join(present_classes) if present_classes else "None",
+                "Num Classes": len(present_classes)
+            })
 
-        progress.progress(processed_count / len(uploaded_files))
+            progress.progress(processed_count / len(uploaded_files))
 
-    status_text.success("All images processed!")
+        status_text.success("All images processed!")
 
 
-    # Optional: simple table with text info only (no images)
-    with st.expander("Summary table (text only)", expanded=False):
-        df_summary = pd.DataFrame(results)[["Filename", "Defects Detected", "Num Classes"]]
-        st.dataframe(df_summary, width="stretch", hide_index=True)
+    
+        # Optional: simple table with text info only (no images)
+        with st.expander("Summary table (text only)", expanded=False):
+            df_summary = pd.DataFrame(results)[["Filename", "Defects Detected", "Num Classes"]]
+            st.dataframe(df_summary, width="stretch", hide_index=True)
 
     
